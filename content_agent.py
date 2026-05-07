@@ -13,6 +13,8 @@ import os
 import sys
 import re
 import io
+import time
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -245,7 +247,10 @@ def main():
                 xhs_body = xhs_body.strip()
 
         if xhs_title and xhs_body:
-            xhs_title_clean = xhs_title[:20]
+            # 截断到18字符（小红书限制20字符，留余量）
+            xhs_title_clean = xhs_title.strip()
+            while len(xhs_title_clean) > 18:
+                xhs_title_clean = xhs_title_clean[:-1]
 
             # 保存正文到临时文件（给PowerShell用）
             import subprocess
@@ -253,17 +258,64 @@ def main():
             with open(tmp_body, "w", encoding="utf-8") as f:
                 f.write(xhs_body)
 
-            # 生成配图
-            print(f"  🎨 用gpt-image-2生成配图...")
+            # 生成配图（用 Superdream 免费 API）
+            print(f"  🎨 用gpt-image-2（免费）生成配图...")
             img_out = os.path.join(DRAFTS_DIR, f"xhs_img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
-            gen_cmd = [
-                "node", ".claude\\skills\\gpt-image-2\\scripts\\generate.js",
-                "--prompt", f"为小红书笔记生成配图，主题：{xhs_title_clean}，风格：清新简约科技感",
-                "--size", "1024x1024",
-                "--quality", "low",
-                "--image", img_out
-            ]
-            subprocess.run(gen_cmd, cwd="D:\\项目", timeout=120, capture_output=True)
+
+            # 登录超梦获取token
+            sd_login = requests.post('https://image.aishop.chat/api/user/login',
+                json={'email': 'lsl005@163.com', 'password': '520334'})
+            sd_token = sd_login.json()['data']['token']
+            sd_headers = {'Authorization': f'Bearer {sd_token}', 'Content-Type': 'application/json'}
+
+            # 提交生图任务
+            sd_gen = requests.post('https://image.aishop.chat/api/user/images/text-to-image',
+                headers=sd_headers,
+                json={
+                    'prompt': f'为小红书笔记生成配图，主题：{xhs_title_clean}，风格：清新简约科技感',
+                    'size': '1k_1x1',
+                    'n': 1,
+                    'output_format': 'png'
+                })
+            sd_data = sd_gen.json()
+
+            if sd_data.get('code') == 0:
+                task_no = sd_data['data']['task_no']
+                print(f"  ⏳ 等待生图（任务: {task_no[:8]}...）")
+                for _ in range(30):
+                    time.sleep(3)
+                    task_resp = requests.get(f'https://image.aishop.chat/api/user/images/tasks/{task_no}',
+                        headers=sd_headers)
+                    task_data = task_resp.json().get('data', {})
+                    if task_data.get('status') == 'succeeded':
+                        results = task_data.get('results', [])
+                        if results:
+                            img_url = results[0].get('url', '')
+                            if img_url:
+                                img_bytes = requests.get(img_url).content
+                                with open(img_out, 'wb') as f:
+                                    f.write(img_bytes)
+                                print(f"  ✅ 配图已生成（免费，0元）")
+                        break
+                    elif task_data.get('status') in ('failed', 'error'):
+                        print(f"  ⚠️ 生图失败: {task_data.get('error_message', '')}")
+                        break
+                else:
+                    print(f"  ⚠️ 生图超时")
+            else:
+                print(f"  ⚠️ 提交生图失败: {sd_data.get('message', '')}")
+
+            # 免费失败时回退到APIYI
+            if not (os.path.exists(img_out) and os.path.getsize(img_out) > 1000):
+                print(f"  ⚠️ 免费接口失败，尝试APIYI备用...")
+                gen_cmd = [
+                    "node", ".claude\\skills\\gpt-image-2\\scripts\\generate.js",
+                    "--prompt", f"为小红书笔记生成配图，主题：{xhs_title_clean}，风格：清新简约科技感",
+                    "--size", "1024x1024",
+                    "--quality", "low",
+                    "--image", img_out
+                ]
+                subprocess.run(gen_cmd, cwd="D:\\项目", timeout=120, capture_output=True)
 
             if os.path.exists(img_out) and os.path.getsize(img_out) > 1000:
                 print(f"  ✅ 配图已生成")
@@ -271,12 +323,13 @@ def main():
                 # 用Python直接调opencli
                 print(f"  📕 发布到小红书草稿箱...")
 
+                opencli_exe = r"C:\Users\Administrator\AppData\Roaming\npm\opencli.cmd"
+
                 # 清洗中文引号和换行（换行符会搞乱cmd.exe参数解析）
                 clean_body = xhs_body.replace('\n\n', '\n').replace('\n', ' ')
-                clean_body = clean_body.replace('“', "'").replace('”', "'")
-                clean_title = xhs_title_clean.replace('“', "'").replace('”', "'")
+                clean_body = clean_body.replace('"', "'").replace('"', "'")
+                clean_title = xhs_title_clean.replace('"', "'").replace('"', "'")
 
-                opencli_exe = r"C:\Users\Administrator\AppData\Roaming\npm\opencli.cmd"
                 pub_args = [
                     opencli_exe, "xiaohongshu", "publish",
                     clean_body,
@@ -289,12 +342,13 @@ def main():
 
                 pub_result = subprocess.run(
                     pub_args,
-                    capture_output=True, text=True, timeout=120
+                    capture_output=True, encoding='utf-8', errors='replace', timeout=120
                 )
                 if pub_result.returncode == 0:
                     print(f"  ✅ 已保存到小红书草稿箱！去app审核发布吧")
                 else:
-                    print(f"  ⚠️ 发布失败: {pub_result.stderr[:300]}")
+                    err_msg = (pub_result.stderr or pub_result.stdout or f"exit={pub_result.returncode}")[:200]
+                    print(f"  ⚠️ 发布失败: {err_msg}")
             else:
                 print(f"  ⚠️ 配图生成失败，跳过自动发布（草稿已存本地）")
         else:
