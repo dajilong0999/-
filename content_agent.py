@@ -268,25 +268,27 @@ def main():
             if os.path.exists(img_out) and os.path.getsize(img_out) > 1000:
                 print(f"  ✅ 配图已生成")
 
-                # 用PowerShell调用opencli发布（处理特殊字符）
-                ps_script = f'''
-$body = Get-Content -Path "{tmp_body}" -Raw -Encoding UTF8
-$title = "{xhs_title_clean}"
-$img = "{img_out}"
-$topics = "{xhs_topics}"
-if ($topics) {{
-    opencli xiaohongshu publish $body --title $title --images $img --topics $topics --draft true
-}} else {{
-    opencli xiaohongshu publish $body --title $title --images $img --draft true
-}}
-'''
-                ps_file = os.path.join(DRAFTS_DIR, ".publish.ps1")
-                with open(ps_file, "w", encoding="utf-8") as f:
-                    f.write(ps_script)
-
+                # 用Python直接调opencli
                 print(f"  📕 发布到小红书草稿箱...")
+
+                # 清洗中文引号和换行（换行符会搞乱cmd.exe参数解析）
+                clean_body = xhs_body.replace('\n\n', '\n').replace('\n', ' ')
+                clean_body = clean_body.replace('“', "'").replace('”', "'")
+                clean_title = xhs_title_clean.replace('“', "'").replace('”', "'")
+
+                opencli_exe = r"C:\Users\Administrator\AppData\Roaming\npm\opencli.cmd"
+                pub_args = [
+                    opencli_exe, "xiaohongshu", "publish",
+                    clean_body,
+                    "--title", clean_title,
+                    "--images", img_out,
+                    "--draft", "true"
+                ]
+                if xhs_topics:
+                    pub_args.extend(["--topics", xhs_topics])
+
                 pub_result = subprocess.run(
-                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps_file],
+                    pub_args,
                     capture_output=True, text=True, timeout=120
                 )
                 if pub_result.returncode == 0:
