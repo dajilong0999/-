@@ -249,13 +249,10 @@ def main():
 
         if xhs_title and xhs_body:
             # 截断标题到20字符以内（小红书限制20字符）
-            xhs_title_clean = xhs_title.strip()
-            # 去emoji（subprocess传emoji给.cmd文件会丢失）
-            xhs_title_clean = re.sub(r'[^\x20-\x7E\xA0-ɏ一-鿿　-〿＀-￯]', '', xhs_title_clean).strip()
-            while len(xhs_title_clean) > 20:
-                xhs_title_clean = xhs_title_clean[:-1]
-            # 去掉末尾标点
-            xhs_title_clean = xhs_title_clean.rstrip('，。！？、；：,.!?;:')
+            xhs_title_clean = re.sub(r'[\U0001F300-\U0001FFFF\U00002000-\U000020FF\U00002700-\U000027BF\U0001F600-\U0001F64F\U0001F680-\U0001F6FF\U0001F900-\U0001F9FF]', '', xhs_title).strip()
+            xhs_title_clean = xhs_title_clean[:20].rstrip('，。！？、；：,.!?;:')
+            if not xhs_title_clean:
+                xhs_title_clean = "AI干货分享"
 
             # 保存正文到临时文件（给PowerShell用）
             import subprocess
@@ -332,8 +329,8 @@ def main():
 
                 opencli_exe = r"C:\Users\Administrator\AppData\Roaming\npm\opencli.cmd"
 
-                # 清洗中文引号（保留换行作为小红书段落分隔）
-                clean_body = xhs_body.replace('\n\n', '\n')
+                # 清洗中文引号和换行（opencli不支持多行正文参数）
+                clean_body = xhs_body.replace('\n', ' ').replace('\r', ' ')
                 clean_body = clean_body.replace('"', "'").replace('"', "'")
                 clean_title = xhs_title_clean.replace('"', "'").replace('"', "'")
 
