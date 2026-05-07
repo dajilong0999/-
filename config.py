@@ -13,7 +13,11 @@ CONTENT_LINES = {
     "ai_visual": "AI视觉创作 - AI生成图片、海报、视频等视觉内容",
 }
 
-# 草稿箱路径
-DRAFTS_DIR = "drafts"
+# 超梦（Superdream）免费生图 - 通过环境变量传入
+SUPERDREAM_EMAIL = os.environ.get("SUPERDREAM_EMAIL", "")
+SUPERDREAM_PASSWORD = os.environ.get("SUPERDREAM_PASSWORD", "")
+
+# 草稿箱路径 - 用你现有的草稿目录
+DRAFTS_DIR = os.environ.get("DRAFTS_DIR", "D:/项目/内容草稿箱")
 XHS_DIR = f"{DRAFTS_DIR}/xiaohongshu"
 DY_DIR = f"{DRAFTS_DIR}/douyin"

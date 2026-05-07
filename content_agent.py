@@ -31,6 +31,7 @@ from openai import OpenAI
 from config import (
     DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL,
     CONTENT_LINES, DRAFTS_DIR, XHS_DIR, DY_DIR,
+    SUPERDREAM_EMAIL, SUPERDREAM_PASSWORD,
 )
 
 # ===== 目录初始化 =====
@@ -247,10 +248,14 @@ def main():
                 xhs_body = xhs_body.strip()
 
         if xhs_title and xhs_body:
-            # 截断到18字符（小红书限制20字符，留余量）
+            # 截断标题到20字符以内（小红书限制20字符）
             xhs_title_clean = xhs_title.strip()
-            while len(xhs_title_clean) > 18:
+            # 去掉可能截断后残留的emoji和不完整标点
+            import unicodedata
+            while len(xhs_title_clean) > 20:
                 xhs_title_clean = xhs_title_clean[:-1]
+            # 去掉末尾标点
+            xhs_title_clean = xhs_title_clean.rstrip('，。！？、；：,.!?;:🔥💥🚀🤖💡⚡')
 
             # 保存正文到临时文件（给PowerShell用）
             import subprocess
@@ -263,8 +268,10 @@ def main():
             img_out = os.path.join(DRAFTS_DIR, f"xhs_img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
 
             # 登录超梦获取token
+            if not SUPERDREAM_EMAIL or not SUPERDREAM_PASSWORD:
+                raise ValueError("超梦账号密码未配置，请设置 SUPERDREAM_EMAIL 和 SUPERDREAM_PASSWORD 环境变量")
             sd_login = requests.post('https://image.aishop.chat/api/user/login',
-                json={'email': 'lsl005@163.com', 'password': '520334'})
+                json={'email': SUPERDREAM_EMAIL, 'password': SUPERDREAM_PASSWORD})
             sd_token = sd_login.json()['data']['token']
             sd_headers = {'Authorization': f'Bearer {sd_token}', 'Content-Type': 'application/json'}
 
@@ -325,8 +332,8 @@ def main():
 
                 opencli_exe = r"C:\Users\Administrator\AppData\Roaming\npm\opencli.cmd"
 
-                # 清洗中文引号和换行（换行符会搞乱cmd.exe参数解析）
-                clean_body = xhs_body.replace('\n\n', '\n').replace('\n', ' ')
+                # 清洗中文引号（保留换行作为小红书段落分隔）
+                clean_body = xhs_body.replace('\n\n', '\n')
                 clean_body = clean_body.replace('"', "'").replace('"', "'")
                 clean_title = xhs_title_clean.replace('"', "'").replace('"', "'")
 
