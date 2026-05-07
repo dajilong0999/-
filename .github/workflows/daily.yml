@@ -39,4 +39,4 @@ jobs:
           git config user.name "龙哥内容Agent"
           git config user.email "agent@longge.ai"
           git add drafts/
-          git diff --staged --quiet || (git commit -m "每日内容草稿 $(date +'%Y-%m-%d %H:%M')" && git push https://x-access-token:${GH_TOKEN}@github.com/dajilong0999/-.git)
+          git diff --staged --quiet || (git commit -m "每日内容草稿 $(date +'%Y-%m-%d %H:%M')" && git remote set-url origin https://dajilong0999:${GH_TOKEN}@github.com/dajilong0999/-.git && git push origin main)
