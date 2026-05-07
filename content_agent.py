@@ -250,12 +250,12 @@ def main():
         if xhs_title and xhs_body:
             # 截断标题到20字符以内（小红书限制20字符）
             xhs_title_clean = xhs_title.strip()
-            # 去掉可能截断后残留的emoji和不完整标点
-            import unicodedata
+            # 去emoji（subprocess传emoji给.cmd文件会丢失）
+            xhs_title_clean = re.sub(r'[^\x20-\x7E\xA0-ɏ一-鿿　-〿＀-￯]', '', xhs_title_clean).strip()
             while len(xhs_title_clean) > 20:
                 xhs_title_clean = xhs_title_clean[:-1]
             # 去掉末尾标点
-            xhs_title_clean = xhs_title_clean.rstrip('，。！？、；：,.!?;:🔥💥🚀🤖💡⚡')
+            xhs_title_clean = xhs_title_clean.rstrip('，。！？、；：,.!?;:')
 
             # 保存正文到临时文件（给PowerShell用）
             import subprocess
