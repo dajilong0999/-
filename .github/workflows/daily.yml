@@ -1,0 +1,41 @@
+name: 每日内容自动化
+
+on:
+  schedule:
+    # 每天 UTC 04:07 = 北京时间 12:07
+    - cron: '7 4 * * *'
+  workflow_dispatch:  # 支持手动触发
+
+jobs:
+  generate-content:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: |
+          pip install -r requirements.txt
+
+      - name: 运行内容Agent
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+          DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+        run: |
+          python content_agent.py
+
+      - name: 提交草稿回仓库
+        run: |
+          git config user.name "龙哥内容Agent"
+          git config user.email "agent@longge.ai"
+          git add drafts/
+          git diff --staged --quiet || git commit -m "📝 每日内容草稿 $(date +'%Y-%m-%d %H:%M')"
+          git push
