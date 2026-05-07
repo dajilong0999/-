@@ -12,8 +12,16 @@ import json
 import os
 import sys
 import re
+import io
 from datetime import datetime
 from pathlib import Path
+
+# 解决Windows GBK编码问题
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    except:
+        pass
 
 import requests
 from openai import OpenAI
@@ -59,36 +67,24 @@ def ask_ai(system_prompt, user_prompt, temperature=0.7):
 # ===== 热点搜索 =====
 
 def search_hot_topics():
-    """搜索今日AI相关热点"""
-    print("🔍 搜索今日AI热点...")
+    """搜索今日AI相关热点（使用DeepSeek自身的知识）"""
+    print("🔍 分析今日AI热点趋势...")
 
-    # 用多个关键词搜，覆盖三条内容线
-    keywords = [
-        "AI工具 2026年5月",
-        "AI绘画 最新",
-        "AI角色设计",
-        "AI黑科技",
-        "AI创作工具",
-    ]
-
-    all_results = []
-    for kw in keywords:
-        try:
-            url = f"https://api.bing.com/?q={kw}&count=5"
-            # 用WebSearch的替代方案 - 通过搜索引擎
-            resp = requests.get(
-                "https://www.google.com/search",
-                params={"q": kw, "hl": "zh-CN"},
-                headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                },
-                timeout=10,
-            )
-            all_results.append(f"关键词：{kw}")
-        except Exception as e:
-            all_results.append(f"关键词：{kw}（搜索失败: {e}）")
-
-    return "\n".join(all_results)
+    client = get_llm()
+    try:
+        resp = client.chat.completions.create(
+            model=DEEPSEEK_MODEL,
+            messages=[
+                {"role": "system", "content": "你是一个AI行业分析师。列出当前（2026年5月）最热门的5个AI话题/趋势，每个带一句话说明。直接输出，不要前缀。"},
+                {"role": "user", "content": "今天AI圈最火的话题是什么？"},
+            ],
+            temperature=0.3,
+            max_tokens=500,
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"  ⚠️ 热点分析失败: {e}")
+        return "2026年5月AI热点：AI绘画工具更新、大模型降价、AI角色创作工具、Sora视频生成、AI电商应用"
 
 # ===== 内容生成 =====
 
@@ -216,7 +212,6 @@ def main():
     # 3. 保存草稿
     print("步骤 3/3：保存草稿...")
 
-    # 解析内容线
     xhs_line = "AI知识科普"
     dy_line = "AI知识科普"
     if "内容线：" in xhs_draft:
@@ -230,11 +225,87 @@ def main():
     print()
     print("=" * 50)
     print("  ✅ 今日内容生成完毕！")
+
+    # 4. 发布到小红书草稿箱
+    print("\n步骤 4/4：发布到平台草稿箱...")
+    try:
+        xhs_title = ""
+        xhs_body = ""
+        xhs_topics = ""
+        lines_parts = xhs_draft.split("\n")
+        for i, line in enumerate(lines_parts):
+            if line.startswith("标题") and "：" in line:
+                xhs_title = line.split("：", 1)[1].strip()
+            elif line.startswith("标签") and "：" in line:
+                xhs_topics = line.split("：", 1)[1].strip().replace("#", "").replace(" ", ",")
+            elif line.startswith("正文") and "：" in line:
+                xhs_body = "\n".join(lines_parts[i+1:])
+                if "标签" in xhs_body and "：" in xhs_body:
+                    xhs_body = xhs_body.split("标签")[0].strip()
+                xhs_body = xhs_body.strip()
+
+        if xhs_title and xhs_body:
+            xhs_title_clean = xhs_title[:20]
+
+            # 保存正文到临时文件（给PowerShell用）
+            import subprocess
+            tmp_body = os.path.join(DRAFTS_DIR, ".xhs_body.txt")
+            with open(tmp_body, "w", encoding="utf-8") as f:
+                f.write(xhs_body)
+
+            # 生成配图
+            print(f"  🎨 用gpt-image-2生成配图...")
+            img_out = os.path.join(DRAFTS_DIR, f"xhs_img_{datetime.now().strftime('%Y%m%d%H%M%S')}.png")
+            gen_cmd = [
+                "node", ".claude\\skills\\gpt-image-2\\scripts\\generate.js",
+                "--prompt", f"为小红书笔记生成配图，主题：{xhs_title_clean}，风格：清新简约科技感",
+                "--size", "1024x1024",
+                "--quality", "low",
+                "--image", img_out
+            ]
+            subprocess.run(gen_cmd, cwd="D:\\项目", timeout=120, capture_output=True)
+
+            if os.path.exists(img_out) and os.path.getsize(img_out) > 1000:
+                print(f"  ✅ 配图已生成")
+
+                # 用PowerShell调用opencli发布（处理特殊字符）
+                ps_script = f'''
+$body = Get-Content -Path "{tmp_body}" -Raw -Encoding UTF8
+$title = "{xhs_title_clean}"
+$img = "{img_out}"
+$topics = "{xhs_topics}"
+if ($topics) {{
+    opencli xiaohongshu publish $body --title $title --images $img --topics $topics --draft true
+}} else {{
+    opencli xiaohongshu publish $body --title $title --images $img --draft true
+}}
+'''
+                ps_file = os.path.join(DRAFTS_DIR, ".publish.ps1")
+                with open(ps_file, "w", encoding="utf-8") as f:
+                    f.write(ps_script)
+
+                print(f"  📕 发布到小红书草稿箱...")
+                pub_result = subprocess.run(
+                    ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps_file],
+                    capture_output=True, text=True, timeout=120
+                )
+                if pub_result.returncode == 0:
+                    print(f"  ✅ 已保存到小红书草稿箱！去app审核发布吧")
+                else:
+                    print(f"  ⚠️ 发布失败: {pub_result.stderr[:300]}")
+            else:
+                print(f"  ⚠️ 配图生成失败，跳过自动发布（草稿已存本地）")
+        else:
+            print(f"  ⚠️ 无法解析草稿（title={bool(xhs_title)}, body={bool(xhs_body)}）")
+    except Exception as e:
+        print(f"  ⚠️ 发布异常: {e}")
+
+    print()
     print(f"  📕 小红书: {xhs_file}")
     print(f"  🎵 抖音:   {dy_file}")
     print(f"  📂 草稿箱: {DRAFTS_DIR}/")
     print()
-    print("  下一步：龙哥审核后，用OpenCLI发布")
+    print("  抖音脚本已保存，可参考制作视频后发布")
     print("=" * 50)
 
 
